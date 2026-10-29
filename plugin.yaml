@@ -1,0 +1,41 @@
+name: decisions
+version: 0.1.0
+description: Background predicate decisions with owned in-memory structured status.
+author: Decisions maintainers
+license: MIT
+requires_hermes: ">=0.22.5"
+provides_tools: [decisions_submit, decisions_status]
+provides_hooks: []
+provides_middleware: []
+requires_env:
+  - name: OPENAI_API_KEY
+    description: OpenAI API key for the default Decisions endpoint.
+    url: https://platform.openai.com/api-keys
+    secret: true
+python_dependencies:
+  - "httpx>=0.23,<0.29"
+config_schema:
+  endpoint:
+    type: str
+    default: https://api.openai.com/v1/decisions
+    description: Operator-approved HTTP(S) destination; must match credential_endpoint exactly.
+  decision_model:
+    type: str
+    default: gpt-6-luna
+    description: Model identifier accepted by the configured endpoint.
+  credential_ref:
+    type: str
+    default: OPENAI_API_KEY
+    description: Scoped secret NAME, not the credential value. Alternate names need native credential setup.
+  credential_endpoint:
+    type: str
+    default: https://api.openai.com/v1/decisions
+    description: Explicit credential destination binding; change together with endpoint after approval.
+  timeout:
+    type: float
+    default: 120
+    description: Total request timeout in seconds, greater than zero and at most 600.
+  api_key:
+    type: secret
+    env: OPENAI_API_KEY
+    description: Native secret field for the default credential_ref; never stored in plugin settings.
