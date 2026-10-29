@@ -81,6 +81,14 @@ def test_exact_response_byte_limit_and_compression_rejection(plugin):
         assert "compressed responses" in result["error"]
 
 
+def test_tools_register_balance_emoji(plugin):
+    from tools.registry import registry
+    for name in ("decisions_submit", "decisions_status"):
+        entry = registry.get_entry(name, scope=plugin.manager.scope_key)
+        assert entry is not None
+        assert entry.emoji == "⚖️"
+
+
 def test_public_defaults_and_native_secret_declaration(plugin):
     # Settings omitted by the operator must match the documented public contract.
     module = plugin.manager._plugins["decisions"].module
