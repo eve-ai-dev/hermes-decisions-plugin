@@ -1,5 +1,5 @@
 name: decisions
-version: 0.1.0
+version: 2.0.0
 description: Predicate decisions from text or scoped UTF-8 files, with intentional sequential repetitions.
 author: Decisions maintainers
 license: MIT

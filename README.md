@@ -35,7 +35,7 @@ plugin settings secret field to configure `OPENAI_API_KEY` for the active profil
 Do not put the key in `config.yaml`, tool arguments, or source files. Restart your
 Hermes session through your normal operator procedure to pick up the enabled tools.
 No catalog listing is assumed: installation by catalog name is available only after
-maintainer admission. Current manifest version is 0.1.0, a pre-release candidate.
+maintainer admission. Current plugin version is **2.0.0**.
 
 ## Configuration
 
