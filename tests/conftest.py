@@ -40,7 +40,7 @@ def plugin(monkeypatch):
     home = HOME
     destination = home / "plugins/decisions"
     destination.mkdir(parents=True, exist_ok=True)
-    for name in ("plugin.yaml", "__init__.py", "client.py", "worker.py"):
+    for name in ("plugin.yaml", "__init__.py", "client.py", "worker.py", "inputs.py", "repetitions.py"):
         shutil.copyfile(ROOT / name, destination / name)
     # Installed entrypoints are not this test's source; never enumerate/import them.
     monkeypatch.setattr(PluginManager, "_scan_entry_points", lambda self: [])

@@ -70,8 +70,6 @@ class Settings:
 
 
 def request_bytes(arguments, settings):
-    if not isinstance(arguments, dict) or set(arguments) - {"input", "questions", "background"}:
-        raise DecisionsError("expected only input, questions and optional background")
     if not isinstance(arguments.get("input"), str):
         raise DecisionsError("input must be a string")
     questions = arguments.get("questions")

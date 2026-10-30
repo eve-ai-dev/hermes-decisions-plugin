@@ -3,6 +3,7 @@ import asyncio
 from collections import OrderedDict
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
+from copy import deepcopy
 import json
 import threading
 from uuid import uuid4
@@ -12,9 +13,12 @@ from gateway.session_context import async_delivery_supported, get_session_env
 from hermes_constants import get_hermes_home
 
 from .client import DecisionsError, Settings, decide, request_bytes
+from .inputs import submission_input
+from .repetitions import Repetitions
 
 CAPACITY = 4
 RETENTION = 32
+FOREGROUND_WAIT_LIMIT = 240  # Released native running-loop bridge stops waiting at 300s.
 
 
 @dataclass(frozen=True)
@@ -61,13 +65,14 @@ class Worker:
         try:
             origin = Origin.capture()
             settings = Settings.read(self.ctx)
-            body = request_bytes(args, settings)
+            text, repetitions = submission_input(args, self.ctx)
+            body = request_bytes({**args, "input": text}, settings)
             background = args.get("background", True)
-            job_id, completed = self.call(self.admit(origin, settings, body, len(args["questions"])))
+            job_id, completed = self.call(self.admit(origin, settings, body, len(args["questions"]), repetitions))
             if background:
                 return json.dumps({"job_id": job_id, "state": "running"})
             # Same task and transport; wait outside the continuing loop.
-            completed.result(timeout=settings.timeout + 5)
+            completed.result(timeout=min(repetitions * settings.timeout + 5, FOREGROUND_WAIT_LIMIT))
             return json.dumps(self.call(self.lookup(job_id, origin)), allow_nan=False)
         except DecisionsError as error:
             return json.dumps({"error": str(error)})
@@ -75,12 +80,12 @@ class Worker:
             return json.dumps({"error": "foreground wait timeout; outcome uncertain, use decisions_status",
                                "job_id": job_id})
 
-    async def admit(self, origin, settings, body, count):
+    async def admit(self, origin, settings, body, count, repetitions):
         if len(self.tasks) >= CAPACITY:
             raise DecisionsError(f"Decisions capacity {CAPACITY} active requests reached; wait before submitting")
         job_id = uuid4().hex
         self.jobs[job_id] = {"owner": origin.owner, "job_id": job_id, "state": "running"}
-        task = self.ctx.spawn_task(self.run(job_id, origin, settings, body, count), name="decisions-request")
+        task = self.ctx.spawn_task(self.run(job_id, origin, settings, body, count, repetitions), name="decisions-request")
         self.tasks.add(task)
         # Newer than the task lease: unload drains/cancels on its owning loop FIRST.
         cleanup = self.ctx.on_unload(lambda: None if task.done() else self.close())
@@ -91,11 +96,16 @@ class Worker:
         task.add_done_callback(lambda done: completed.set_result(None))
         return job_id, completed
 
-    async def run(self, job_id, origin, settings, body, count):
+    async def run(self, job_id, origin, settings, body, count, repetitions):
         record = self.jobs[job_id]
         try:
-            record["result"] = await decide(settings, body, count)
-            record["state"] = "completed"
+            if repetitions == 1:
+                record["result"] = await decide(settings, body, count)
+                record["state"] = "completed"
+            else:
+                group = Repetitions(repetitions, count)
+                record["result"] = group.result
+                record["state"] = await group.run(settings, body, count)
         except asyncio.CancelledError:
             record.update(state="cancelled", error="worker unloaded; outcome uncertain, not retried")
         except DecisionsError as error:
@@ -122,7 +132,7 @@ class Worker:
         record = self.jobs.get(job_id)
         if record is None or record["owner"] != origin.owner:
             raise DecisionsError("job not found in this home/session (expired or unknown)")
-        return {key: value for key, value in record.items() if key != "owner"}
+        return deepcopy({key: value for key, value in record.items() if key != "owner"})
 
     async def status(self, args):
         try:

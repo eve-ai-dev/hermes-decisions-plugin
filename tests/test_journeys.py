@@ -2,6 +2,7 @@
 import asyncio
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import import_module
 import json
 import threading
 import time
@@ -18,14 +19,15 @@ RESULT = {"answers": [{"type": "predicate", "name": None, "probability": 0.75}],
 
 
 @contextmanager
-def server(payload_override=None, encoding=None):
+def server(payload_override=None, encoding=None, outcomes=None):
     records = []
     release = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            records.append((self.path, self.headers.get("Authorization"), body))
+            raw = self.rfile.read(int(self.headers["Content-Length"]))
+            body = json.loads(raw)
+            records.append((self.path, self.headers.get("Authorization"), body, raw))
             if self.path == "/hold":
                 release.wait(10)
             if self.path == "/timeout":
@@ -36,6 +38,8 @@ def server(payload_override=None, encoding=None):
                 payload = b"x" * 1048577
             if payload_override is not None:
                 payload = payload_override
+            if outcomes is not None:
+                status, payload = outcomes[len(records) - 1]
             self.send_response(status)
             self.send_header("Location", "/unexpected-target")
             self.send_header("Content-Length", str(len(payload)))
@@ -160,10 +164,19 @@ def test_destination_binding_and_missing_scoped_secret_prevent_http(plugin):
             reset_secret_scope(token)
 
 
-def test_capacity_and_unload_cancel_real_pending_http(plugin):
+def test_capacity_and_unload_cancel_real_pending_http(plugin, monkeypatch):
+    groups = []
+    module = import_module(plugin.manager._plugins["decisions"].module.__name__ + ".repetitions")
+    original_run = module.Repetitions.run
+
+    async def observe_group(group, *args):
+        groups.append(group.result)  # Observe volatile cancellation accounting before unload drops jobs.
+        return await original_run(group, *args)
+
+    monkeypatch.setattr(module.Repetitions, "run", observe_group)
     with server() as (url, records, release):
         plugin.configure(url + "/hold")
-        ids = [plugin.dispatch("decisions_submit", ARGS)["job_id"] for _ in range(4)]
+        ids = [plugin.dispatch("decisions_submit", {**ARGS, "repetitions": 3})["job_id"] for _ in range(4)]
         wait_requests(records, 4)
         assert "capacity 4" in plugin.dispatch("decisions_submit", ARGS)["error"]
         assert all(plugin.dispatch("decisions_status", {"job_id": job})["state"] == "running" for job in ids)
@@ -172,6 +185,12 @@ def test_capacity_and_unload_cancel_real_pending_http(plugin):
         assert time.monotonic() - started < 2
         assert not any(t.name == "decisions-worker" and t.is_alive() for t in threading.enumerate())
         assert len(records) == 4
+        assert len(groups) == 4
+        for group in groups:
+            assert group["requested"] == 3 and group["not_started"] == 2
+            assert group["completed"] == group["success"] == group["failed"] == 0
+            assert group["attempts"][0]["state"] == "cancelled"
+            assert "outcome uncertain" in group["attempts"][0]["error"]
 
 
 @pytest.mark.parametrize("consent", [True, False])

@@ -1,6 +1,6 @@
 name: decisions
 version: 0.1.0
-description: Background predicate decisions with owned in-memory structured status.
+description: Predicate decisions from text or scoped UTF-8 files, with intentional sequential repetitions.
 author: Decisions maintainers
 license: MIT
 requires_hermes: ">=0.22.5"
@@ -35,6 +35,10 @@ config_schema:
     type: float
     default: 120
     description: Total request timeout in seconds, greater than zero and at most 600.
+  input_roots:
+    type: list
+    default: []
+    description: Operator-approved absolute input directories; empty disables file reads. Never include runtime home or secrets.
   api_key:
     type: secret
     env: OPENAI_API_KEY
